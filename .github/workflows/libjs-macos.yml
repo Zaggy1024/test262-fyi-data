@@ -1,0 +1,45 @@
+name: LibJS on macOS
+
+on:
+  push:
+    branches: [libjs-macos-check]
+  workflow_dispatch:
+
+jobs:
+  libjs:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-26]
+    runs-on: ${{ matrix.runner }}
+    env:
+      GITHUB_TOKEN: ${{ secrets.ARTIFACT_TOKEN || secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Set up LibJS the way the runner does
+        run: |
+          sw_vers
+          mkdir -p .test262-fyi
+          cd .test262-fyi
+          node --input-type=module -e "console.log(await (await import('../engines/libjs/setup.js')).default())"
+          ls -la
+
+      - name: Run LibJS by hand
+        working-directory: .test262-fyi
+        run: |
+          set +e
+          ./libjs --disable-ansi-colors --no-syntax-highlight --disable-source-location-hints --disable-debug-output --use-test262-global --raw-strings -c 'print("hello from libjs")'
+          echo "exit=$?"
+          printf 'print(new Intl.Collator("de").compare("ä", "z") < 0 ? "PASS" : "FAIL");\n' > intl.js
+          ./libjs --use-test262-global intl.js
+          echo "exit=$?"
+
+      - name: Run the test262.fyi runner for LibJS
+        run: |
+          node controller/index.js libjs
+          node -e "const r = require('./.test262-fyi/results/libjs.json'); const p = Object.values(r.passes); console.log('libjs passes:', p.filter(x => x).length, '/', p.length, 'version', r.version)"
